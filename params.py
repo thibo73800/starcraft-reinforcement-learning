@@ -16,7 +16,7 @@ class BeaconParams(PooParams):
     # Size of the map and the minimap
     map_size = (64,64)
     minimap_size = 64
-    action_space = 1 # then convert to x, y
+    action_space = 64*64 # then convert to x, y
 
     pi_lr = 0.0001 # pi learning rate
     vf_lr = 0.0001 # Value learning rate
