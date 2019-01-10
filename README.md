@@ -3,6 +3,8 @@ Reinforcement learning on starcraft using pysc2.
 
 ## First level: Move to Beacon
 
+I used vanissa policy gradient to solve this environments/
+
 ### Train the model
 
 ```
@@ -21,4 +23,4 @@ python beacon.py --model simple_save --replay 1
 
 ### Watch a replay
 
-python -m pysc2.bin.play --replay <absolute-path-to-the-replay-file>
+python -m pysc2.bin.play --replay \<absolute-path\>
