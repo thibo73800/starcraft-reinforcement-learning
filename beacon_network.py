@@ -9,6 +9,8 @@ from rlsrc.logx import EpochLogger
 import tensorflow as tf
 import numpy as np
 import scipy.signal
+import json
+import os
 
 class Buffer:
     """
@@ -84,7 +86,13 @@ class PolicyGradient(object):
     """
     def __init__(self, input_space, action_space, pi_lr, vf_lr, buffer_size, seed):
         super(PolicyGradient, self).__init__()
-
+        # For serialize and unseialize
+        self.initSavor = {'input_space':input_space,
+                          'action_space':action_space,
+                          'pi_lr':pi_lr,
+                          'vf_lr':vf_lr,
+                          'buffer_size':buffer_size,
+                          'seed':seed}
         # Create a logger
         self.logger = EpochLogger(output_dir="./logger")
         self.logger.save_config(locals())
@@ -141,7 +149,7 @@ class PolicyGradient(object):
         # Set the tensorflow used to run this model
         self.sess = sess
         # Set up the saver
-        self.logger.setup_tf_saver(self.sess, inputs={'x': self.tf_map}, outputs={'pi': self.pi_op, "mu": self.mu_op})
+        self.logger.setup_tf_saver(self.sess, inputs={'x': self.tf_map}, outputs={'pi': self.pi_op, "mu": self.mu_op,"logp_pi": self.logp_pi_op })
 
     def step(self, states):
         # Take actions given the states
@@ -165,6 +173,17 @@ class PolicyGradient(object):
         # Save model
         self.logger.log("Saving model. it=%s" % it)
         self.logger.save_state({}, it)
+    
+    def load(self, sess, model):
+        # Load model
+        saves = [int(x[11:]) for x in os.listdir("./logger") if model in x and len(x)>11]
+        itr = '%d'%max(saves)
+        print("Select this MODEL", itr)
+        model = self.logger.load_state(sess, model, int(itr))
+        self.mu_op = model['mu']
+        self.pi_op = model['pi']
+        self.logp_pi_op = model['logp_pi']
+        
 
     def train(self, additional_infos={}):
         # Get buffer

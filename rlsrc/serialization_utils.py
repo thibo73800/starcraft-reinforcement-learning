@@ -24,7 +24,8 @@ def convert_json(obj):
             return {str(obj): obj_dict}
 
         return str(obj)
-
+    
+    
 def is_json_serializable(v):
     try:
         json.dumps(v)
