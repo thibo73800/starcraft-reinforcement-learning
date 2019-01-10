@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 from pysc2.agents import base_agent
 import numpy as np
 
@@ -15,7 +16,7 @@ class ParentAgent(base_agent.BaseAgent):
     	mapp = obs.observation["feature_screen"][screen_feature.index]
     	return np.array(mapp)
 
-    def plot_feature_screen(obs, screen_feature):
+    def plot_feature_screen(self, obs, screen_feature):
     	# Get the feature associated with the observation
     	mapp = obs.observation["feature_screen"][screen_feature.index]
     	# Floor point (in case there is flaot points)
