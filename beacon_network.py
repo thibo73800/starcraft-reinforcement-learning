@@ -86,13 +86,6 @@ class PolicyGradient(object):
     """
     def __init__(self, input_space, action_space, pi_lr, vf_lr, buffer_size, seed):
         super(PolicyGradient, self).__init__()
-        # For serialize and unseialize
-        self.initSavor = {'input_space':input_space,
-                          'action_space':action_space,
-                          'pi_lr':pi_lr,
-                          'vf_lr':vf_lr,
-                          'buffer_size':buffer_size,
-                          'seed':seed}
         # Create a logger
         self.logger = EpochLogger(output_dir="./logger")
         self.logger.save_config(locals())
