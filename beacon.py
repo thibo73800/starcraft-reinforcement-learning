@@ -55,7 +55,7 @@ class Agent(ParentAgent):
 		self.local_steps_per_epoch = int(self.max_steps / num_procs())
 
 		# Create the NET class
-		self.policyGradient = network.PolicyGradient(
+		self.policy_gradient = network.PolicyGradient(
 			input_space=BP.map_size,
 			action_space=BP.action_space,
 			pi_lr=BP.pi_lr,
@@ -66,53 +66,53 @@ class Agent(ParentAgent):
 
 		sess = tf.Session()
 		if model is None:
-			self.policyGradient.compile()
+			self.policy_gradient.compile()
 			# Init variables
 			sess.run(tf.global_variables_initializer())
 			# Sync params across processes
 			sess.run(sync_all_params())
-        
+		# Load the model
 		if model is not None:
-			self.policyGradient.load(sess,model)
+			self.policy_gradient.load(sess, model)
 			saves = [int(x[11:]) for x in os.listdir("./logger") if model in x and len(x)>11]
-			itr = '%d'%max(saves)
+			itr = '%d' % max(saves)
 			self.epoch = int(itr)
-		# Set the session in ppo
-		self.policyGradient.set_sess(sess)
 
-            
-	def trainAgent(self,obs_new, obs, action, reward,last_logp_pi):
-		#
+		# Set the session in ppo
+		self.policy_gradient.set_sess(sess)
+
+	def train_agent(self, obs_new, obs, action, reward, last_logp_pi):
+		# Train the agent
 		reward = -1 if reward == 0 else 1
 		obs = self.get_feature_screen(obs, FS_PLAYER_RELATIVE)
-        
-		self.policyGradient.store(obs, action, reward, last_logp_pi)
+		# Store the reward
+		self.policy_gradient.store(obs, action, reward, last_logp_pi)
 		# Increase the current step
 		self.nb_steps += 1
 		# Finish the episode on reward == 1
 		if reward == 1 and self.nb_steps != self.local_steps_per_epoch and not obs_new.last():
-			self.policyGradient.finish_path(reward)
+			self.policy_gradient.finish_path(reward)
 		# If this is the end of the epoch or this is the last observation
 		if self.nb_steps == self.local_steps_per_epoch or obs_new.last():
 			# Retrieve the features
 			features = self.get_feature_screen(obs_new, FS_PLAYER_RELATIVE)
 			# If this is the last observation, we bootstrap the value function
-			self.policyGradient.finish_path(obs_new.reward)
+			self.policy_gradient.finish_path(obs_new.reward)
 
 			# We do not train yet if this is just the end of the current episode
 			if obs_new.last() is True and self.nb_steps != self.local_steps_per_epoch:
 				return
 
-			self.policyGradient.train({"Epoch": self.epoch})
+			self.policy_gradient.train({"Epoch": self.epoch})
 
 			self.nb_steps = 0
 			self.epoch += 1
 			# Save every 100 epochs
 			if (self.epoch-1) % 300 == 0:
-				self.policyGradient.save(self.epoch)
-    
-    
-	def predictionToPosition(self,pi, dim = 64):
+				self.policy_gradient.save(self.epoch)
+
+	def prediction_to_position(self,pi, dim = 64):
+		# Translate the prediction to y,x position
 		pirescale = np.expand_dims(pi, axis=1)
 		pirescale = np.append(pirescale, np.zeros_like(pirescale), axis=1)
 		positions = np.zeros_like(pirescale)
@@ -126,13 +126,12 @@ class Agent(ParentAgent):
 		super(Agent, self).step(obs)
 		# if we can move our army (we have something selected)
 		if _MOVE_SCREEN in obs.observation['available_actions']:
-
 			# Get the features of the screen
 			features = self.get_feature_screen(obs, FS_PLAYER_RELATIVE)
         	# Step with ppo according to this state
-			mu, pi, last_logp_pi = self.policyGradient.step([features])
+			mu, pi, last_logp_pi = self.policy_gradient.step([features])
 			# Convert the prediction into positions
-			positions = self.predictionToPosition(pi)
+			positions = self.prediction_to_position(pi)
 			# Get a random location on the map
 			return actions.FunctionCall(_MOVE_SCREEN, [_NOT_QUEUED, positions[0]]) , pi[0] ,last_logp_pi
 
@@ -144,13 +143,13 @@ def main(_):
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--model', type=str, help='Name of the model')
 	parser.add_argument('--replay', type=bool, help="Save a replay of the experiment")
-	parser.add_argument('--training', type=bool, help="if is training")
+	parser.add_argument('--training', type=bool, help="if it is training")
 	args, unknown_flags = parser.parse_known_args()
 
 	model = args.model
-	visualize = False #
-	replay = args.replay #
-	isTraining = args.training
+	visualize = False
+	replay = args.replay
+	is_training = args.training
 
 	step_mul = 16 if model is None else 16
 	save_replay_episodes = 10 if replay else 0
@@ -181,8 +180,8 @@ def main(_):
 					step_actions = [action]
 					old_timesteps = timesteps
 					timesteps = env.step(step_actions)
-					if(isTraining):
-						agent.trainAgent(timesteps[0], old_timesteps[0], pi, timesteps[0].reward, last_logp_pi)
+					if(is_training):
+						agent.train_agent(timesteps[0], old_timesteps[0], pi, timesteps[0].reward, last_logp_pi)
 					if timesteps[0].last():
 						break
 
@@ -194,7 +193,7 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--model', type=str, help='Name of the model')
 	parser.add_argument('--replay', type=bool, help="Save a replay of the experiment")
-	parser.add_argument('--training', type=bool, help="if is training")
+	parser.add_argument('--training', type=bool, help="if it is training")
 	args, unknown_flags = parser.parse_known_args()
 	flags.FLAGS(sys.argv[:1] + unknown_flags)
 

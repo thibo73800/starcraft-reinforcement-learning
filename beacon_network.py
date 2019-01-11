@@ -142,10 +142,18 @@ class PolicyGradient(object):
         # Set the tensorflow used to run this model
         self.sess = sess
         # Set up the saver
-        self.logger.setup_tf_saver(self.sess, inputs={'x': self.tf_map}, outputs={"tf_a": self.tf_a, "tf_adv": self.tf_adv,
-                                                                                  "mu": self.mu_op, 'pi': self.pi_op,"logp_a":self.logp_a_op,
-                                                                                  "logp_pi": self.logp_pi_op,"pi_loss":self.pi_loss,
-                                                                                  "approx_ent":self.approx_ent})
+        self.logger.setup_tf_saver(self.sess, inputs={
+                'x': self.tf_map,
+                "tf_a": self.tf_a,
+                "tf_adv": self.tf_adv,
+            }, outputs={
+                "mu": self.mu_op,
+                'pi': self.pi_op,
+                "logp_a": self.logp_a_op,
+                "logp_pi": self.logp_pi_op,
+                "pi_loss": self.pi_loss,
+                "approx_ent": self.approx_ent
+        })
 
     def step(self, states):
         # Take actions given the states
@@ -169,11 +177,11 @@ class PolicyGradient(object):
         # Save model
         self.logger.log("Saving model. it=%s" % it)
         self.logger.save_state({}, it)
-    
+
     def load(self, sess, model):
         # Load model
-        saves = [int(x[11:]) for x in os.listdir("./logger") if model in x and len(x)>11]
-        itr = '%d'%max(saves)
+        saves = [int(x[11:]) for x in os.listdir("./logger") if model in x and len(x) > 11]
+        itr = '%d' % max(saves)
         print("Select this MODEL", itr)
         model = self.logger.load_state(sess, model, int(itr))
         self.tf_map = model['x']
@@ -184,13 +192,13 @@ class PolicyGradient(object):
         self.logp_a_op =model['logp_a']
         self.logp_pi_op = model['logp_pi']
         self.pi_loss = model['pi_loss']
-        self.train_pi = tf.train.AdamOptimizer(learning_rate=self.pi_lr,name='Adam'+str(itr)).minimize(self.pi_loss)
+        self.train_pi = tf.train.AdamOptimizer(learning_rate=self.pi_lr, name='Adam' + str(itr)).minimize(self.pi_loss)
         self.approx_ent = model['approx_ent']
         self.initialize_uninitialized(sess)
 
     def initialize_uninitialized(self, sess):
-        global_vars          = tf.global_variables()
-        is_not_initialized   = sess.run([tf.is_variable_initialized(var) for var in global_vars])
+        global_vars = tf.global_variables()
+        is_not_initialized = sess.run([tf.is_variable_initialized(var) for var in global_vars])
         not_initialized_vars = [v for (v, f) in zip(global_vars, is_not_initialized) if not f]
 
         if len(not_initialized_vars):
