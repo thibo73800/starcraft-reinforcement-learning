@@ -144,10 +144,11 @@ def main(_):
 	parser.add_argument('--model', type=str, help='Name of the model')
 	parser.add_argument('--replay', type=bool, help="Save a replay of the experiment")
 	parser.add_argument('--training', type=bool, help="if it is training")
+	parser.add_argument('--visualize', type=bool, help="show the agent")
 	args, unknown_flags = parser.parse_known_args()
 
 	model = args.model
-	visualize = False
+	visualize = args.visualize
 	replay = args.replay
 	is_training = args.training
 
@@ -194,6 +195,7 @@ if __name__ == '__main__':
 	parser.add_argument('--model', type=str, help='Name of the model')
 	parser.add_argument('--replay', type=bool, help="Save a replay of the experiment")
 	parser.add_argument('--training', type=bool, help="if it is training")
+	parser.add_argument('--visualize', type=bool, help="show the agent")
 	args, unknown_flags = parser.parse_known_args()
 	flags.FLAGS(sys.argv[:1] + unknown_flags)
 
