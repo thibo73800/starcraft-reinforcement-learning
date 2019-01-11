@@ -46,97 +46,79 @@ class Agent(ParentAgent):
 	def __init__(self, model=None):
 		super(Agent, self).__init__()
 		self.model = model
-		if model is not None: # Load model
-			saves = [int(x[11:]) for x in os.listdir("./logger") if model in x and len(x)>11]
-			itr = '%d'%max(saves)
-			print("Select this MODEL", itr)
-			# load the model!
-			sess = tf.Session()
-			model = restore_tf_graph(sess, os.path.join("./logger", model+itr))
-			action_op = model['pi']
-			# make function for producing an action given a single state
-			self.get_action = lambda x : sess.run(action_op, feed_dict={model['x']: x[None,:]})
-		else: # Create the model
-			self.nb_steps = 0
-			self.max_steps = 512
-			self.epoch = 0
+		self.nb_steps = 0
+		self.max_steps = 512
+		self.epoch = 0
 
-			seed = BP.seed + 10000 * proc_id()
+		seed = BP.seed + 10000 * proc_id()
 
-			self.local_steps_per_epoch = int(self.max_steps / num_procs())
+		self.local_steps_per_epoch = int(self.max_steps / num_procs())
 
-			# Create the NET class
-			self.agent = network.PolicyGradient(
-				input_space=BP.map_size,
-				action_space=BP.action_space,
-				pi_lr=BP.pi_lr,
-				vf_lr=BP.vf_lr,
-				buffer_size=self.local_steps_per_epoch,
-				seed=BP.seed
-			)
-			self.agent.compile()
+		# Create the NET class
+		self.policy_gradient = network.PolicyGradient(
+			input_space=BP.map_size,
+			action_space=BP.action_space,
+			pi_lr=BP.pi_lr,
+			vf_lr=BP.vf_lr,
+			buffer_size=self.local_steps_per_epoch,
+			seed=BP.seed
+		)
 
-			# Init Session
-			sess = tf.Session()
+		sess = tf.Session()
+		if model is None:
+			self.policy_gradient.compile()
 			# Init variables
 			sess.run(tf.global_variables_initializer())
 			# Sync params across processes
 			sess.run(sync_all_params())
-			# Set the session in ppo
-			self.agent.set_sess(sess)
+		# Load the model
+		if model is not None:
+			self.policy_gradient.load(sess, model)
+			saves = [int(x[11:]) for x in os.listdir("./logger") if model in x and len(x)>11]
+			itr = '%d' % max(saves)
+			self.epoch = int(itr)
 
-			self.current_tuple = None
+		# Set the session in ppo
+		self.policy_gradient.set_sess(sess)
 
-	def handle_tuple(self, obs):
-		# Handle the current tuple
-		if self.current_tuple is not None:
-			self.current_tuple[2] = -1 if obs.reward == 0 else 1
-			t = self.current_tuple
-			self.agent.store(t[0], t[1], t[2], t[3])
-			# Increase the current step
-			self.nb_steps += 1
-			# Finish the episode on reward == 1
-			if obs.reward == 1 and self.nb_steps != self.local_steps_per_epoch and not obs.last():
-				self.agent.finish_path(obs.reward)
-			# If this is the end of the epoch or this is the last observation
-			if self.nb_steps == self.local_steps_per_epoch or obs.last():
-				# Retrieve the features
-				features = self.get_feature_screen(obs, FS_PLAYER_RELATIVE)
-				# If this is the last observation, we bootstrap the value function
-				self.agent.finish_path(obs.reward)
+	def train_agent(self, obs_new, obs, action, reward, last_logp_pi):
+		# Train the agent
+		reward = -1 if reward == 0 else 1
+		obs = self.get_feature_screen(obs, FS_PLAYER_RELATIVE)
+		# Store the reward
+		self.policy_gradient.store(obs, action, reward, last_logp_pi)
+		# Increase the current step
+		self.nb_steps += 1
+		# Finish the episode on reward == 1
+		if reward == 1 and self.nb_steps != self.local_steps_per_epoch and not obs_new.last():
+			self.policy_gradient.finish_path(reward)
+		# If this is the end of the epoch or this is the last observation
+		if self.nb_steps == self.local_steps_per_epoch or obs_new.last():
+			# Retrieve the features
+			features = self.get_feature_screen(obs_new, FS_PLAYER_RELATIVE)
+			# If this is the last observation, we bootstrap the value function
+			self.policy_gradient.finish_path(obs_new.reward)
 
-				# We do not train yet if this is just the end of the current episode
-				if obs.last() is True and self.nb_steps != self.local_steps_per_epoch:
-					return
+			# We do not train yet if this is just the end of the current episode
+			if obs_new.last() is True and self.nb_steps != self.local_steps_per_epoch:
+				return
 
-				self.agent.train({"Epoch": self.epoch})
+			self.policy_gradient.train({"Epoch": self.epoch})
 
-				self.nb_steps = 0
-				self.epoch += 1
-				# Save every 100 epochs
-				if (self.epoch-1) % 300 == 0:
-					self.agent.save(self.epoch)
+			self.nb_steps = 0
+			self.epoch += 1
+			# Save every 100 epochs
+			if (self.epoch-1) % 300 == 0:
+				self.policy_gradient.save(self.epoch)
 
-			self.current_tuple = None
-
-	def move_screen(self, obs):
-		# Store the tuple in memory
-		self.handle_tuple(obs)
-		# Get the features of the screen
-		features = self.get_feature_screen(obs, FS_PLAYER_RELATIVE)
-		# Step with ppo according to this state
-		mu, pi, last_logp_pi = self.agent.step([features])
-		# Convert the prediction into positions
+	def prediction_to_position(self,pi, dim = 64):
+		# Translate the prediction to y,x position
 		pirescale = np.expand_dims(pi, axis=1)
 		pirescale = np.append(pirescale, np.zeros_like(pirescale), axis=1)
 		positions = np.zeros_like(pirescale)
-		positions[:,0] = pirescale[:,0] // 64
-		positions[:,1] = pirescale[:,0] % 64
-		# Create the next tueple
-		self.current_tuple = [features, pi[0], None, last_logp_pi]
-
-		# Get a random location on the map
-		return actions.FunctionCall(_MOVE_SCREEN, [_NOT_QUEUED, positions[0]])
+		positions[:,0] = pirescale[:,0] // dim
+		positions[:,1] = pirescale[:,0] % dim
+		return positions
 
 	def step(self, obs):
 		# step function gets called automatically by pysc2 environment
@@ -144,32 +126,31 @@ class Agent(ParentAgent):
 		super(Agent, self).step(obs)
 		# if we can move our army (we have something selected)
 		if _MOVE_SCREEN in obs.observation['available_actions']:
-			if not self.model:
-				return self.move_screen(obs)
-			else:
-				features = self.get_feature_screen(obs, FS_PLAYER_RELATIVE)
-				pi = self.get_action(features)
+			# Get the features of the screen
+			features = self.get_feature_screen(obs, FS_PLAYER_RELATIVE)
+        	# Step with ppo according to this state
+			mu, pi, last_logp_pi = self.policy_gradient.step([features])
+			# Convert the prediction into positions
+			positions = self.prediction_to_position(pi)
+			# Get a random location on the map
+			return actions.FunctionCall(_MOVE_SCREEN, [_NOT_QUEUED, positions[0]]) , pi[0] ,last_logp_pi
 
-				pirescale = np.expand_dims(pi, axis=1)
-				pirescale = np.append(pirescale, np.zeros_like(pirescale), axis=1)
-				positions = np.zeros_like(pirescale)
-				positions[:,0] = pirescale[:,0] // 64
-				positions[:,1] = pirescale[:,0] % 64
-
-				return actions.FunctionCall(_MOVE_SCREEN, [_NOT_QUEUED,  positions[0]])
 		# if we can't move, we havent selected our army, so selecto ur army
 		else:
-			return actions.FunctionCall(_SELECT_ARMY, [_SELECT_ALL])
+			return actions.FunctionCall(_SELECT_ARMY, [_SELECT_ALL]), None, None
 
 def main(_):
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--model', type=str, help='Name of the model')
 	parser.add_argument('--replay', type=bool, help="Save a replay of the experiment")
+	parser.add_argument('--training', type=bool, help="if it is training")
+	parser.add_argument('--visualize', type=bool, help="show the agent")
 	args, unknown_flags = parser.parse_known_args()
 
 	model = args.model
-	visualize = False #
-	replay = args.replay #
+	visualize = args.visualize
+	replay = args.replay
+	is_training = args.training
 
 	step_mul = 16 if model is None else 16
 	save_replay_episodes = 10 if replay else 0
@@ -196,18 +177,25 @@ def main(_):
 				agent.reset()
 
 				while True:
-					step_actions = [agent.step(timesteps[0])]
+					action, pi, last_logp_pi = agent.step(timesteps[0])
+					step_actions = [action]
+					old_timesteps = timesteps
+					timesteps = env.step(step_actions)
+					if(is_training):
+						agent.train_agent(timesteps[0], old_timesteps[0], pi, timesteps[0].reward, last_logp_pi)
 					if timesteps[0].last():
 						break
-					timesteps = env.step(step_actions)
 
 	except KeyboardInterrupt:
 		pass
+
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--model', type=str, help='Name of the model')
 	parser.add_argument('--replay', type=bool, help="Save a replay of the experiment")
+	parser.add_argument('--training', type=bool, help="if it is training")
+	parser.add_argument('--visualize', type=bool, help="show the agent")
 	args, unknown_flags = parser.parse_known_args()
 	flags.FLAGS(sys.argv[:1] + unknown_flags)
 

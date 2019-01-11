@@ -9,6 +9,8 @@ from rlsrc.logx import EpochLogger
 import tensorflow as tf
 import numpy as np
 import scipy.signal
+import json
+import os
 
 class Buffer:
     """
@@ -84,7 +86,6 @@ class PolicyGradient(object):
     """
     def __init__(self, input_space, action_space, pi_lr, vf_lr, buffer_size, seed):
         super(PolicyGradient, self).__init__()
-
         # Create a logger
         self.logger = EpochLogger(output_dir="./logger")
         self.logger.save_config(locals())
@@ -141,7 +142,18 @@ class PolicyGradient(object):
         # Set the tensorflow used to run this model
         self.sess = sess
         # Set up the saver
-        self.logger.setup_tf_saver(self.sess, inputs={'x': self.tf_map}, outputs={'pi': self.pi_op, "mu": self.mu_op})
+        self.logger.setup_tf_saver(self.sess, inputs={
+                'x': self.tf_map,
+                "tf_a": self.tf_a,
+                "tf_adv": self.tf_adv,
+            }, outputs={
+                "mu": self.mu_op,
+                'pi': self.pi_op,
+                "logp_a": self.logp_a_op,
+                "logp_pi": self.logp_pi_op,
+                "pi_loss": self.pi_loss,
+                "approx_ent": self.approx_ent
+        })
 
     def step(self, states):
         # Take actions given the states
@@ -165,6 +177,32 @@ class PolicyGradient(object):
         # Save model
         self.logger.log("Saving model. it=%s" % it)
         self.logger.save_state({}, it)
+
+    def load(self, sess, model):
+        # Load model
+        saves = [int(x[11:]) for x in os.listdir("./logger") if model in x and len(x) > 11]
+        itr = '%d' % max(saves)
+        print("Select this MODEL", itr)
+        model = self.logger.load_state(sess, model, int(itr))
+        self.tf_map = model['x']
+        self.tf_a = model['tf_a']
+        self.tf_adv = model['tf_adv']
+        self.mu_op = model['mu']
+        self.pi_op = model['pi']
+        self.logp_a_op =model['logp_a']
+        self.logp_pi_op = model['logp_pi']
+        self.pi_loss = model['pi_loss']
+        self.train_pi = tf.train.AdamOptimizer(learning_rate=self.pi_lr, name='Adam' + str(itr)).minimize(self.pi_loss)
+        self.approx_ent = model['approx_ent']
+        self.initialize_uninitialized(sess)
+
+    def initialize_uninitialized(self, sess):
+        global_vars = tf.global_variables()
+        is_not_initialized = sess.run([tf.is_variable_initialized(var) for var in global_vars])
+        not_initialized_vars = [v for (v, f) in zip(global_vars, is_not_initialized) if not f]
+
+        if len(not_initialized_vars):
+            sess.run(tf.variables_initializer(not_initialized_vars))
 
     def train(self, additional_infos={}):
         # Get buffer

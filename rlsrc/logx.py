@@ -141,6 +141,12 @@ class Logger:
             print(output)
             with open(osp.join(self.output_dir, "config.json"), 'w') as out:
                 out.write(output)
+    
+    def load_state(self,sess, model, itr=None):
+        fname = model + ('%d'%itr if itr is not None else '')
+        print(fname)
+        return restore_tf_graph(sess, os.path.join("./logger", fname))
+        
 
     def save_state(self, state_dict, itr=None):
         """
